@@ -1,0 +1,194 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@400;500;700&display=swap');
+
+:root {
+  --bg-color: #fdfbf7;
+  --panel-bg: rgba(255, 255, 255, 0.85);
+  --panel-bg-solid: #ffffff;
+  --border-color: rgba(133, 113, 90, 0.15);
+  --text-main: #4a3f35;
+  --text-muted: #8c7e71;
+  --accent: #e57342;
+  --accent-hover: #cf5d2f;
+  --success: #2e9e6b;
+  --glass-shadow: 0 10px 40px -10px rgba(168, 150, 133, 0.25);
+  --warning: #e05252;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+
+body {
+  background: var(--bg-color);
+  color: var(--text-main);
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 { font-family: 'Outfit', sans-serif; }
+button { cursor: pointer; border: none; background: transparent; }
+
+/* Utilities */
+.glass-panel {
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  padding: 1.5rem;
+}
+.glass-panel-no-radius {
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-right: 1px solid var(--border-color);
+}
+
+/* SaaS Layout Elements */
+.saas-layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.saas-sidebar {
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.saas-brand {
+  padding: 2rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+.saas-brand-sub { font-size: 0.85rem; color: var(--text-muted); margin-top: 5px; }
+
+.saas-nav {
+  padding: 1.5rem 1rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.saas-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+.saas-nav-link:hover, .saas-nav-link.active {
+  background: rgba(229, 115, 66, 0.12);
+  color: var(--text-main);
+}
+.saas-nav-link.active {
+  border-left: 3px solid var(--accent);
+  background: rgba(229, 115, 66, 0.2);
+}
+
+.saas-sidebar-footer { padding: 1.5rem 1rem; border-top: 1px solid var(--border-color); }
+
+.saas-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.saas-topbar {
+  height: 70px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 2rem;
+  background: rgba(253, 251, 247, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 5;
+}
+
+.ai-fab-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  padding: 10px 20px;
+  border-radius: 20px;
+  color: white;
+  font-weight: bold;
+  box-shadow: 0 4px 15px rgba(229, 115, 66, 0.3);
+  transition: transform 0.2s;
+}
+.ai-fab-button:hover { transform: scale(1.05); }
+
+.saas-content {
+  flex: 1;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
+/* Slide Drawer */
+.ai-drawer {
+  position: absolute;
+  top: 0;
+  right: -400px;
+  width: 400px;
+  height: 100vh;
+  background: var(--panel-bg-solid);
+  box-shadow: -5px 0 25px rgba(0,0,0,0.1);
+  z-index: 100;
+  transition: right 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border-color);
+}
+.ai-drawer.open { right: 0; }
+.ai-drawer-header {
+  padding: 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+}
+.ai-drawer-content { padding: 1.5rem; flex: 1; overflow-y: auto; }
+.ai-drawer-overlay {
+  position: absolute; top:0; left:0; width:100vw; height:100vh;
+  background: rgba(0,0,0,0.4); z-index: 90;
+}
+
+/* Tables */
+.saas-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.saas-table th {
+  padding: 1rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border-color);
+}
+.saas-table td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+.badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+.badge.success { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+.badge.warning { background: rgba(239, 68, 68, 0.2); color: var(--warning); }
+
+/* Remove old app-container */
+.assistant-panel { padding: 0; border: none; box-shadow: none; background: transparent; }
+.mic-button { margin: 2rem auto; width: 80px; height: 80px; }
+.response-box, .error-box, .transcript-box { margin-bottom: 1rem; }
