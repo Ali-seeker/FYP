@@ -1,0 +1,116 @@
+version: "3.1"
+
+nlu:
+# 1. CREATE: Naya Product Shamil Karna
+- intent: ADD_PRODUCT
+  examples: |
+    - add new product [rice](product) with price [250](price) and stock [100](quantity)
+    - create new item [biscuit](product) price [40](price) initial stock [50](quantity)
+    - register a product named [juice](product) rate [120](price) quantity [80](quantity)
+    - add product [shampoo](product) price [400](price)
+    - create item [soap](product)
+    - naya product dalo [chini](product) jis ki qeemat [140](price) ho aur stock [200](quantity)
+    - ek naya item [oil](product) shamil karo rate [500](price) stock [50](quantity)
+    - inventory me naya maal dalo [atta](product) price [120](price) quantity [150](quantity)
+    - naya item add karo [tea](product) ka
+    - entry karo naye product [daal](product) ki
+    - نیا پروڈکٹ شامل کرو [چینی](product) قیمت [150](price) اور اسٹاک [100](quantity)
+    - نیا آئٹم ڈالو [دودھ](product) ریٹ [200](price) اسٹاک [50](quantity)
+    - ایک نیا پروڈکٹ رجسٹر کرو [تیل](product)
+    - انونٹری میں نیا مال ڈالو [آٹا](product) قیمت [130](price)
+
+# 2. READ: Stock Aur Inventory Check Karna
+- intent: CHECK_INVENTORY
+  examples: |
+    - check stock of [sugar](product)
+    - how many [milk](product) packets are left
+    - show me the total inventory
+    - display all products table
+    - check current status of [oil](product)
+    - list all items in directory
+    - stock dikhao [sugar](product) ka
+    - kitna maal bacha hai [milk](product) ka check karo
+    - inventory check karo puri
+    - dikhao list me kya kya hai
+    - [atta](product) kitna para hua hai godam me
+    - [daal](product) ka stock check karna
+    - اسٹاک چیک کرو [چینی](product) کا
+    - کتنی [چینی](product) بچی ہے دکان میں
+    - انونٹری دکھاؤ پوری
+    - تمام پروڈکٹس کی لسٹ دکھاؤ
+    - [دودھ](product) کا اسٹاک کتنا ہے دیکھو
+    - مال چیک کرو کتنا ہے
+
+# 3. UPDATE: Maal Bechna (Record Sale)
+- intent: RECORD_SALE
+  examples: |
+    - sell [2](quantity) kg [sugar](product) for [300](price) rupees
+    - record sale of [1](quantity) [milk](product) pack for [180](price)
+    - [oil](product) sold [5](quantity) liters total price [2500](price)
+    - log transaction [3](quantity) [biscuit](product) cost [120](price)
+    - sell [10](quantity) items of [soap](product)
+    - bech do [2](quantity) kilo [sugar](product) [300](price) ki
+    - [milk](product) becho [1](quantity) packet [200](price) ka
+    - sale record karo [5](quantity) [atta](product) price [600](price)
+    - customer ko de do [2](quantity) [juice](product) total [240](price)
+    - [3](quantity) kilo [daal](product) nikal do [450](price) ki
+    - [2](quantity) کلو [چینی](product) بیچو [300](price) روپے کی
+    - سیل ریکارڈ کرو [1](quantity) [دودھ](product) کی قیمت [150](price)
+    - [5](quantity) لیٹر [تیل](product) بیچ دیا [2500](price) کا
+    - کسٹمر کو دے دو [3](quantity) [بسکٹ](product)
+    - [2](quantity) کلو [آٹا](product) نکالو [250](price) روپے کا
+
+# 4. UPDATE: Stock Barhana (Restock Inventory)
+- intent: RESTOCK_INVENTORY
+  examples: |
+    - add [50](quantity) kg [sugar](product) to stock
+    - restock [20](quantity) packs of [milk](product)
+    - increase stock of [oil](product) by [10](quantity) units
+    - top up [biscuit](product) inventory with [30](quantity) pieces
+    - load [100](quantity) items of [soap](product)
+    - [sugar](product) shamil karo [20](quantity) kilo stock me
+    - stock barhao [milk](product) ka [30](quantity) packets aur dalo
+    - restock karo [atta](product) [10](quantity) boriyan
+    - maal barhao [oil](product) ka [15](quantity) dalo
+    - inventory me [50](quantity) [juice](product) aur jama karo
+    - [50](quantity) کلو [چینی](product) ڈالو اسٹاک میں
+    - اسٹاک بڑھاؤ [دودھ](product) کا [20](quantity) پیکٹ اور لاؤ
+    - [10](quantity) لیٹر [تیل](product) شامل کرو انونٹری میں
+    - مال بڑھاؤ [آٹا](product) کا [30](quantity) کلو
+
+# 5. UPDATE: Qeemat Badalna (Update Price)
+- intent: UPDATE_PRICE
+  examples: |
+    - change price of [sugar](product) to [160](price)
+    - update rate of [milk](product) to [210](price)
+    - set new price for [oil](product) as [480](price)
+    - modify cost of [biscuit](product) to [50](price)
+    - update [soap](product) price [90](price) rupees
+    - [sugar](product) ka price [150](price) kar do ab se
+    - new rate lagao [milk](product) ka [220](price) rupees
+    - qeemat badlo [oil](product) ki [520](price) tak
+    - [atta](product) ab [130](price) ka milega price badlo
+    - rate update karo [juice](product) ka [130](price)
+    - [چینی](product) کی قیمت [160](price) کر دو
+    - [دودھ](product) کا نیا ریٹ [220](price) روپے سیٹ کرو
+    - قیمت تبدیل کرو [تیل](product) کی [500](price) تک
+    - نیا ریٹ لگاؤ [آٹا](product) کا [140](price) روپے
+    - ریٹ اپڈیٹ کرو [بسکٹ](product) کا [50](price)
+
+# 6. DELETE: Product Hata Dena (Remove Entry)
+- intent: DELETE_PRODUCT
+  examples: |
+    - delete [sugar](product) from inventory
+    - remove product [milk](product) permanently
+    - wipe out item [oil](product) from directory
+    - clear product [biscuit](product)
+    - delete entry for [soap](product)
+    - [sugar](product) ko list se hata do hamesha ke liye
+    - remove kar do product [milk](product) ko
+    - [oil](product) delete mardo directory se
+    - list se mita do [biscuit](product) ko
+    - [atta](product) product khatam kar do lsit se
+    - حذف کرو [چینی](product) کو انونٹری سے
+    - ہمیشہ کے لیے ہٹاؤ پروڈکٹ [دودھ](product) کو
+    - لسٹ سے مٹاؤ [تیل](product) کا نام
+    - [بسکٹ](product) پروڈکٹ ڈیلیٹ کر دو

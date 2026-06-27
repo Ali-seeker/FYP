@@ -33,7 +33,8 @@ const Inventory = () => {
     const fetchInventory = async () => {
         try {
             const res = await axios.get(API, { headers });
-            setProducts(res.data.data);
+            // SAFE FIX: Agar res.data.data undefined ho toh baki options check karega
+            setProducts(res.data.data || res.data || []);
         } catch {
             showToast('Failed to load products', 'error');
         }
@@ -161,7 +162,8 @@ const Inventory = () => {
 
             {/* ── Product Table ── */}
             <div className="glass-panel">
-                {products.length === 0 ? (
+                {/* SAFE FIX: Optional chaining (?.) use kiya hai */}
+                {products?.length === 0 ? (
                     <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                         <Package size={48} style={{ opacity: 0.5, marginBottom: '1rem' }} />
                         <p>No products exist in your directory.</p>
@@ -180,15 +182,16 @@ const Inventory = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            {products.map((p, idx) => (
+                            {/* SAFE FIX: Optional chaining (?.) use kiya hai */}
+                            {products?.map((p, idx) => (
                                 <tr key={p._id}>
                                     <td style={{ opacity: 0.5 }}>{idx + 1}</td>
-                                    <td style={{ fontWeight: '500' }}>{p.name}</td>
-                                    <td>PKR {p.price.toLocaleString()}</td>
-                                    <td style={{ fontWeight: '600' }}>{p.stockQuantity}</td>
+                                    <td style={{ fontWeight: '500' }}>{p?.name || 'Unknown'}</td>
+                                    <td>PKR {p?.price?.toLocaleString() || 0}</td>
+                                    <td style={{ fontWeight: '600' }}>{p?.stockQuantity || 0}</td>
                                     <td>
-                                        <span className={`badge ${p.stockQuantity === 0 ? 'danger' : p.stockQuantity < 5 ? 'warning' : 'success'}`}>
-                                            {p.stockQuantity === 0 ? 'Out of Stock' : p.stockQuantity < 5 ? 'Low Stock' : 'In Stock'}
+                                        <span className={`badge ${!p?.stockQuantity ? 'danger' : p.stockQuantity < 5 ? 'warning' : 'success'}`}>
+                                            {!p?.stockQuantity ? 'Out of Stock' : p.stockQuantity < 5 ? 'Low Stock' : 'In Stock'}
                                         </span>
                                     </td>
                                     <td>

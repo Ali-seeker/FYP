@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
 import { AuthContext } from '../context/AuthContext';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { useOfflineSync } from '../hooks/useOfflineSync';
 
 const Dashboard = () => {
   const { user } = useContext(AuthContext);
-  const [analytics, setAnalytics] = useState(null);
+  const { isOnline, isSyncing, syncErrors } = useOfflineSync();
+  const [analytics, setAnalytics] = useState({ topSellers: [], lowPerformers: [], insights: [] });
 
   useEffect(() => {
     const fetchAnalytics = async () => {
@@ -18,13 +20,19 @@ const Dashboard = () => {
         console.error("Failed to fetch analytics");
       }
     };
-    if (user) fetchAnalytics();
-  }, [user]);
+    if (user && isOnline) fetchAnalytics();
+  }, [user, isOnline]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
            <h1 style={{fontSize: '2rem', fontWeight: 600}}>System Analytics</h1>
+           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+               {!isOnline && <span style={{ background: '#f56565', color: 'white', padding: '4px 12px', borderRadius: '12px', fontSize: '0.8rem' }}>Offline Mode</span>}
+               {isOnline && !isSyncing && <span style={{ background: '#48bb78', color: 'white', padding: '4px 12px', borderRadius: '12px', fontSize: '0.8rem' }}>Online</span>}
+               {isSyncing && <span style={{ background: '#ed8936', color: 'white', padding: '4px 12px', borderRadius: '12px', fontSize: '0.8rem' }}>Syncing...</span>}
+               {syncErrors.length > 0 && <span style={{ color: '#f56565', fontSize: '0.8rem' }}>⚠️ Sync Errors</span>}
+           </div>
         </div>
 
         {/* Top KPIs */}

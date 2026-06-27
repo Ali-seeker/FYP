@@ -14,13 +14,13 @@ router.get('/', protect, async (req, res) => {
     
     let productSalesMap = {}; // { productId: quantitySold }
     sales.forEach(sale => {
-      sale.products.forEach(p => {
-        const pIdStr = p.productId ? p.productId.toString() : 'unknown';
+      sale.items.forEach(p => {
+        const pIdStr = p.product_id ? p.product_id.toString() : 'unknown';
         if (!productSalesMap[pIdStr]) {
             productSalesMap[pIdStr] = { name: p.name, quantity: 0, revenue: 0 };
         }
         productSalesMap[pIdStr].quantity += p.quantity;
-        productSalesMap[pIdStr].revenue += p.price * p.quantity;
+        productSalesMap[pIdStr].revenue += p.unit_price * p.quantity;
       });
     });
 

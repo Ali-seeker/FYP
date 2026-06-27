@@ -20,6 +20,7 @@ app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/assistant', require('./routes/assistantRoutes'));
 app.use('/api/inventory', require('./routes/inventoryRoutes'));
 app.use('/api/analytics', require('./routes/analyticsRoutes'));
+app.use('/api/sync', require('./routes/syncRoutes'));
 
 app.get('/', (req, res) => res.send('API Running'));
 

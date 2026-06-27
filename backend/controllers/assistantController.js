@@ -1,294 +1,308 @@
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
 const Sale = require('../models/Sale');
 const Invoice = require('../models/Invoice');
 const Product = require('../models/Product');
+const Customer = require('../models/Customer');
+const Reminder = require('../models/Reminder');
 const Inventory = require('../models/Inventory');
+const { runInTransaction } = require('../utils/transactionHelper');
+const { sendNotification } = require('../utils/twilioHelper');
 
-// ─── Fuzzy / Smart matching helpers ───────────────────────────────────────────
+const AI_BRIDGE_URL = process.env.AI_BRIDGE_URL || 'http://localhost:5001';
 
-// Translate common Roman Urdu / conversational terms to English intents
-function translateRomanUrdu(str) {
-  let mapped = str
-    .replace(/\b(ko|kro|karo|bhai|ki|ka)\b/g, '') // remove filler words
-    .replace(/\bdo\b/gi, '2')
-    .replace(/\bek\b/gi, '1')
-    .replace(/\bteen\b/gi, '3')
-    .replace(/\bchar\b/gi, '4')
-    .replace(/\bpaanch\b/gi, '5')
-    .replace(/\b(chay|chey)\b/gi, '6')
-    .replace(/\bsaath\b/gi, '7')
-    .replace(/\baath\b/gi, '8')
-    .replace(/\bnau\b/gi, '9')
-    .replace(/\bdas\b/gi, '10')
-    .replace(/\bbech|becho\b/gi, 'sell')
-    .replace(/\bhatao|mitao\b/gi, 'delete')
-    .replace(/\bshamil|dalao|add\b/gi, 'add')
-    .replace(/\bkitne|kitna|check\b/gi, 'check')
-    .replace(/\bchalu\b/gi, 'start');
-  
-  return mapped;
-}
+// In-memory state for conversational clarification (Dialogue Stack)
+// In production, this should use Redis or a DB.
+const conversationState = {};
 
-// Normalise a string: lowercase, remove punctuation, expand common abbreviations
-function normalise(str) {
-  str = translateRomanUrdu(str.toLowerCase());
-  return str
-    // expand common unit abbreviations BEFORE stripping punctuation
-    .replace(/\b1\s*l\b/g, '1 liter')
-    .replace(/\b(\d+)\s*l\b/g, '$1 liter')
-    .replace(/\b(\d+)\s*kg\b/g, '$1 kilogram')
-    .replace(/\b(\d+)\s*g\b/g, '$1 gram')
-    .replace(/\b(\d+)\s*ml\b/g, '$1 milliliter')
-    .replace(/litre/g, 'liter')
-    .replace(/litres/g, 'liter')
-    .replace(/liters/g, 'liter')
-    .replace(/kgs/g, 'kilogram')
-    .replace(/kilograms/g, 'kilogram')
-    .replace(/grams/g, 'gram')
-    // Remove plural forms for easier matching (e.g. shirts -> shirt)
-    .replace(/\b(\w+)(s)\b/g, '$1')
-    .replace(/[.,!?]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// Remove filler / intent words so only the product token remains
-function stripIntentWords(text, intentWords) {
-  const numWords = ['one','two','three','four','five','six','seven','eight','nine','ten', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
-  return text
-    .split(' ')
-    .filter(w => !intentWords.includes(w) && !numWords.includes(w) && isNaN(w) && w.length > 0)
-    .join(' ')
-    .trim();
-}
-
-// Compute similarity score between two strings (0 – 1)
-// Uses word-overlap + substring containment
-function similarityScore(a, b) {
-  const wordsA = a.split(' ');
-  const wordsB = b.split(' ');
-
-  // Word overlap
-  const setB = new Set(wordsB);
-  const overlap = wordsA.filter(w => setB.has(w)).length;
-  // Use a softer penalty for extra words in a, to allow long phrases to match short product names
-  const wordScore = overlap / Math.max(1, wordsB.length); 
-
-  // Substring containment bonus
-  const containsBonus = (a.includes(b) || b.includes(a)) ? 0.3 : 0;
-
-  return Math.min(1, wordScore + containsBonus);
-}
-
-// Find best matching product from inventory
-function findBestMatch(text, products, threshold = 0.35) {
-  const normText = normalise(text);
-  let best = null;
-  let bestScore = 0;
-
-  for (const p of products) {
-    const normName = normalise(p.name);
-    // If the normalised product name is fully inside the text, it's a guaranteed match
-    let score = 0;
-    if (normText.includes(normName)) {
-      score = 1;
-    } else {
-      score = similarityScore(normText, normName);
-    }
-
-    if (score > bestScore) {
-      bestScore = score;
-      best = p;
-    }
-  }
-
-  return bestScore >= threshold ? best : null;
-}
-
-// ─── Quantity parser ───────────────────────────────────────────────────────────
-function parseQuantity(text) {
-  const numMap = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, 
-                   ek:1, 'do':2, teen:3, char:4, paanch:5, chey:6, chay:6, saath:7, aath:8, nau:9, das:10 };
-  let quantity = 1;
-  const words = normalise(text).split(' ');
-  for (const word of words) {
-    if (numMap[word]) { quantity = numMap[word]; break; }
-  }
-  const digitMatch = text.match(/\d+/);
-  if (digitMatch) quantity = parseInt(digitMatch[0], 10);
-  return quantity;
-}
-
-// ─── Main controller ──────────────────────────────────────────────────────────
-const processCommand = async (req, res) => {
-  const { command } = req.body;
+const processAudioCommand = async (req, res) => {
   const businessId = req.user.businessId;
   const userId = req.user.id;
+  const { command, audioBase64 } = req.body;
 
-  if (!command) {
+  let textCommand = command;
+
+  // 1. Transcribe audio if provided
+  if (audioBase64) {
+    try {
+      const buffer = Buffer.from(audioBase64, 'base64');
+      const tempFilePath = path.join(os.tmpdir(), `audio-${crypto.randomUUID()}.wav`);
+      fs.writeFileSync(tempFilePath, buffer);
+
+      const FormData = require('form-data');
+      const formData = new FormData();
+      formData.append('audio', fs.createReadStream(tempFilePath));
+
+      const transcribeRes = await axios.post(`${AI_BRIDGE_URL}/transcribe`, formData, {
+        headers: formData.getHeaders()
+      });
+
+      fs.unlinkSync(tempFilePath); // Cleanup
+
+      if (transcribeRes.data.success) {
+        textCommand = transcribeRes.data.text;
+      } else {
+        return res.json({ success: false, textResponse: "Could not transcribe audio." });
+      }
+    } catch (err) {
+      console.error("Transcription error:", err.message);
+      return res.status(500).json({ success: false, textResponse: "AI Transcription service is unavailable." });
+    }
+  }
+
+  if (!textCommand) {
     return res.status(400).json({ success: false, textResponse: "Please say a command." });
   }
 
-  const text = normalise(command);
-
+  // 2. Parse NLU intents
+  let parsedData;
   try {
-    // ── SELL / SALE ────────────────────────────────────────────────────────────
-    const isSale = text.includes('sale') || text.includes('record') || text.includes('sell') ||
-                   text.includes('bech') || text.includes('sold') || text.includes('selling');
-
-    if (isSale) {
-      const quantity = parseQuantity(text);
-      const products = await Product.find({ businessId });
-      const matchedProduct = findBestMatch(text, products);
-
-      if (!matchedProduct) {
-        return res.json({
-          success: false,
-          textResponse: `I heard "${command}" but could not find a matching product in your inventory. Please check product names.`
-        });
-      }
-
-      const invRecord = await Inventory.findOne({ productId: matchedProduct._id });
-      if (!invRecord || invRecord.quantity < quantity) {
-        return res.json({
-          success: false,
-          textResponse: `Not enough stock of ${matchedProduct.name}. Only ${invRecord ? invRecord.quantity : 0} available.`
-        });
-      }
-
-      invRecord.quantity -= quantity;
-      await invRecord.save();
-
-      const totalAmount = matchedProduct.price * quantity;
-      const newSale = await Sale.create({
-        businessId, userId,
-        products: [{ productId: matchedProduct._id, name: matchedProduct.name, quantity, price: matchedProduct.price }],
-        totalAmount
-      });
-      await Invoice.create({
-        saleId: newSale._id, businessId,
-        invoiceNumber: `INV-${Date.now()}`,
-        totalAmount
-      });
-
-      return res.json({
-        success: true,
-        intent: 'RECORD_SALE',
-        data: newSale,
-        textResponse: `Successfully sold ${quantity} ${matchedProduct.name}. Stock updated.`
-      });
+    const parseRes = await axios.post(`${AI_BRIDGE_URL}/parse`, { text: textCommand });
+    if (parseRes.data.success) {
+      parsedData = parseRes.data.data;
+    } else {
+      return res.json({ success: false, textResponse: "Failed to parse command." });
     }
+  } catch (err) {
+    console.error("NLU Parsing error:", err.message);
+    return res.status(500).json({ success: false, textResponse: "AI NLU service is unavailable." });
+  }
 
-    // ── DELETE / REMOVE ────────────────────────────────────────────────────────
-    const isDelete = text.includes('delete') || text.includes('remove') || text.includes('hatao') ||
-                     text.includes('hata') || text.includes('mitao');
+  const { intent, confidence, productName, quantity, price, unit, customerName, phone } = parsedData;
 
-    if (isDelete) {
-      const products = await Product.find({ businessId });
-      const matchedProduct = findBestMatch(text, products);
-
-      if (!matchedProduct) {
-        return res.json({
-          success: false,
-          textResponse: `Could not find a matching product to delete. Please be more specific.`
-        });
-      }
-
-      await Inventory.deleteOne({ productId: matchedProduct._id });
-      await Product.deleteOne({ _id: matchedProduct._id });
-
-      return res.json({
-        success: true,
-        intent: 'DELETE_PRODUCT',
-        textResponse: `${matchedProduct.name} has been deleted from your inventory.`
-      });
-    }
-
-    // ── RESTOCK / ADD ──────────────────────────────────────────────────────────
-    const isRestock = text.includes('add') || text.includes('restock') || text.includes('increase') ||
-                      text.includes('shamil') || text.includes('jalao') || text.includes('stock');
-
-    if (isRestock) {
-      const quantity = parseQuantity(text);
-      const products = await Product.find({ businessId });
-      const matchedProduct = findBestMatch(text, products);
-
-      if (!matchedProduct) {
-        // Create new product from spoken name
-        const intentWords = ['add', 'restock', 'increase', 'shamil', 'jalao', 'stock'];
-        let newName = stripIntentWords(text, intentWords);
-        newName = newName.replace(/\b\w/g, c => c.toUpperCase());
-
-        if (!newName) {
-          return res.json({ success: false, textResponse: "I couldn't determine the product name to add." });
-        }
-
-        const newProduct = await Product.create({
-          businessId, name: newName, price: 0,
-          description: "Auto-created from voice command"
-        });
-        await Inventory.create({ productId: newProduct._id, businessId, quantity });
-
-        return res.json({
-          success: true,
-          intent: 'RESTOCK_INVENTORY',
-          textResponse: `Created new product "${newName}" and added ${quantity} to stock.`
-        });
-      }
-
-      const invRecord = await Inventory.findOne({ productId: matchedProduct._id });
-      if (invRecord) {
-        invRecord.quantity += quantity;
-        await invRecord.save();
-        return res.json({
-          success: true,
-          intent: 'RESTOCK_INVENTORY',
-          textResponse: `Added ${quantity} ${matchedProduct.name}. Total stock is now ${invRecord.quantity}.`
-        });
-      } else {
-        await Inventory.create({ productId: matchedProduct._id, businessId, quantity });
-        return res.json({
-          success: true,
-          intent: 'RESTOCK_INVENTORY',
-          textResponse: `Added ${quantity} ${matchedProduct.name} to inventory.`
-        });
-      }
-    }
-
-    // ── CHECK STOCK ────────────────────────────────────────────────────────────
-    const isCheck = text.includes('inventory') || text.includes('stock') || text.includes('check') ||
-                    text.includes('how many') || text.includes('kitna');
-
-    if (isCheck) {
-      const products = await Product.find({ businessId });
-      const matchedProduct = findBestMatch(text, products, 0.25);
-
-      if (matchedProduct) {
-        const invRecord = await Inventory.findOne({ productId: matchedProduct._id });
-        return res.json({
-          success: true,
-          intent: 'CHECK_INVENTORY',
-          textResponse: `You have ${invRecord ? invRecord.quantity : 0} ${matchedProduct.name} in stock.`
-        });
-      }
-
-      const numItems = await Inventory.countDocuments({ businessId });
-      return res.json({
-        success: true,
-        intent: 'CHECK_INVENTORY',
-        textResponse: `You have ${numItems} unique products in inventory. Say a product name to check its stock.`
-      });
-    }
-
+  // 3. Confidence Safeguards
+  if (confidence < 0.7) {
     return res.json({
       success: true,
-      intent: 'UNKNOWN',
-      textResponse: "I didn't understand. Try: 'sell 2 milk', 'add 5 bread', 'check milk', or 'delete juice'."
+      textResponse: "I couldn't clearly understand. Can you please repeat that?"
     });
-
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ success: false, textResponse: "System error processing your command." });
   }
+
+  if (confidence >= 0.7 && confidence < 0.9) {
+    // In a full dialogue manager, we'd save this intent and ask for Yes/No confirmation
+    // For now, we simulate asking for confirmation.
+    const stateId = userId.toString();
+    conversationState[stateId] = { pendingAction: parsedData, turn: 1 };
+    return res.json({
+      success: true,
+      requiresConfirmation: true,
+      textResponse: `I think you said you want to ${intent.replace('_', ' ').toLowerCase()}. Is that correct?`
+    });
+  }
+
+  // Clear state on high confidence new intent
+  delete conversationState[userId.toString()];
+
+  // 4. Handle Missing Parameters with Dialogue Stack
+  if (intent === 'RECORD_SALE' && !productName) {
+    return res.json({ success: true, textResponse: "Which product are you selling?" });
+  }
+
+  // Fetch product for matching
+  let matchedProduct = null;
+  if (productName) {
+    const regex = new RegExp(productName, 'i');
+    matchedProduct = await Product.findOne({
+      businessId,
+      $or: [{ name: regex }, { name_ur: regex }]
+    });
+  }
+
+  // ── UPDATE PRICE ──────────────────────────────────────────────────────────
+  if (intent === 'UPDATE_PRICE') {
+    if (!matchedProduct) return res.json({ success: false, textResponse: "Could not find a matching product." });
+    if (!price) return res.json({ success: false, textResponse: "What should the new price be?" });
+
+    matchedProduct.price = price;
+    await matchedProduct.save();
+
+    return res.json({ success: true, textResponse: `Price of ${matchedProduct.name} has been updated to ${price}.` });
+  }
+
+  // ── RESTOCK / ADD ──────────────────────────────────────────────────────────
+  if (intent === 'RESTOCK_INVENTORY') {
+    if (!matchedProduct) {
+       // Create new product
+       const newProduct = await Product.create({
+         businessId,
+         name: productName || "Unknown Product",
+         unit: unit || 'piece',
+         price: price || 0
+       });
+       await Inventory.create({
+         productId: newProduct._id,
+         businessId,
+         quantity: quantity || 1
+       });
+       return res.json({ success: true, textResponse: `Created new product ${newProduct.name} with stock ${quantity || 1}.`});
+    }
+
+    let inventory = await Inventory.findOne({ productId: matchedProduct._id, businessId });
+    if (!inventory) {
+        inventory = await Inventory.create({ productId: matchedProduct._id, businessId, quantity: 0 });
+    }
+    inventory.quantity += (quantity || 1);
+    await inventory.save();
+    return res.json({ success: true, textResponse: `Added ${quantity || 1} to ${matchedProduct.name}. Total stock is now ${inventory.quantity}.` });
+  }
+
+  // ── CHECK STOCK ────────────────────────────────────────────────────────────
+  if (intent === 'CHECK_INVENTORY') {
+    if (matchedProduct) {
+      const inventory = await Inventory.findOne({ productId: matchedProduct._id, businessId });
+      const qty = inventory ? inventory.quantity : 0;
+      return res.json({ success: true, textResponse: `You have ${qty} ${matchedProduct.name} in stock.` });
+    }
+    const numItems = await Product.countDocuments({ businessId });
+    return res.json({ success: true, textResponse: `You have ${numItems} unique products in inventory.` });
+  }
+
+  // ── SELL / RECORD SALE ─────────────────────────────────────────────────────
+  if (intent === 'RECORD_SALE') {
+    if (!matchedProduct) return res.json({ success: false, textResponse: "I could not find that product." });
+
+    const finalQuantity = quantity || 1;
+    const finalPrice = price || matchedProduct.price;
+    const totalAmount = finalPrice * finalQuantity;
+
+    let responseMsg = '';
+
+    try {
+      await runInTransaction(async ({ session }) => {
+        // Fetch fresh product state
+        const product = await Product.findOne({ _id: matchedProduct._id }).session(session);
+        const inventory = await Inventory.findOne({ productId: product._id, businessId }).session(session);
+
+        if (!inventory || inventory.quantity < finalQuantity) {
+          throw new Error(`Not enough stock. Only ${inventory ? inventory.quantity : 0} available.`);
+        }
+
+        // Deduct inventory
+        inventory.quantity -= finalQuantity;
+        await inventory.save({ session });
+
+        // Proactive Low Stock Warning
+        if (inventory.quantity <= product.low_stock_threshold) {
+          responseMsg += `Warning: ${product.name} stock is below minimum level (${inventory.quantity} left). `;
+        }
+
+        // Resolve Customer
+        let customerId = null;
+        if (customerName || phone) {
+           let customer = null;
+           if (phone) customer = await Customer.findOne({ phone, businessId }).session(session);
+           if (!customer && customerName) {
+              const nameRegex = new RegExp(customerName, 'i');
+              customer = await Customer.findOne({ businessId, $or: [{name: nameRegex}, {name_ur: nameRegex}] }).session(session);
+           }
+           
+           if (!customer) {
+              // Create customer
+              const newCustomers = await Customer.create([{
+                  businessId,
+                  name: customerName || 'Walk-in',
+                  phone: phone || `UNKNOWN-${Date.now()}`
+              }], { session });
+              customerId = newCustomers[0]._id;
+           } else {
+              customerId = customer._id;
+           }
+        }
+
+        // Create Sale
+        const newSale = await Sale.create([{
+          businessId,
+          userId,
+          customer_id: customerId,
+          items: [{
+            product_id: product._id,
+            name: product.name,
+            quantity: finalQuantity,
+            unit_price: finalPrice,
+            subtotal: totalAmount
+          }],
+          total_amount: totalAmount,
+          payment_status: 'paid', // Could be dynamic based on intent text
+          sync_status: 'synced',
+          sale_date: Date.now()
+        }], { session });
+
+        // Create Invoice
+        await Invoice.create([{
+          sale_id: newSale[0]._id,
+          businessId,
+          customer_id: customerId,
+          invoiceNumber: `INV-${Date.now()}`,
+          totalAmount: totalAmount,
+          delivery_status: customerId ? 'pending' : 'none'
+        }], { session });
+
+        responseMsg = `Successfully sold ${finalQuantity} ${product.name}. ` + responseMsg;
+      });
+
+      return res.json({ success: true, textResponse: responseMsg });
+
+    } catch (transactionErr) {
+      return res.json({ success: false, textResponse: transactionErr.message });
+    }
+  }
+
+  // ── CREDIT REMINDER ────────────────────────────────────────────────────────
+  if (intent === 'CREDIT_REMINDER') {
+      if (!customerName) return res.json({ success: false, textResponse: "Which customer should I remind?"});
+      
+      const regex = new RegExp(customerName, 'i');
+      const customer = await Customer.findOne({ businessId, $or: [{ name: regex }, { name_ur: regex }] });
+      
+      if (!customer) return res.json({ success: false, textResponse: `Could not find customer ${customerName}.`});
+      if (customer.credit_balance <= 0) return res.json({ success: true, textResponse: `${customer.name} has no pending credit.`});
+      
+      const reminderAmount = price || customer.credit_balance;
+
+      const newReminder = await Reminder.create({
+          businessId,
+          customer_id: customer._id,
+          amount: reminderAmount,
+          channel: 'sms',
+          status: 'pending'
+      });
+
+      const message = `Hello ${customer.name}, you have an outstanding credit balance of Rs. ${reminderAmount}. Please clear it at your earliest convenience.`;
+      
+      // Execute Twilio Helper asynchronously
+      sendNotification({ to: customer.phone, message, channel: 'sms' }).then(async (result) => {
+          if(result.success) {
+              newReminder.status = 'sent';
+          } else {
+              newReminder.status = 'failed';
+          }
+          await newReminder.save();
+      });
+
+      return res.json({ success: true, textResponse: `Sent a reminder to ${customer.name} for ${reminderAmount} rupees.`});
+  }
+
+  // ── GENERATE REPORT ────────────────────────────────────────────────────────
+  if (intent === 'GENERATE_REPORT') {
+      const totalSales = await Sale.countDocuments({ businessId });
+      
+      // Need mongoose ObjectId conversion if needed, but simple query should work for businessId since it's typically a string or ObjectId mapped directly
+      // Better to just sum without aggregation if there's type issues, but let's try standard sum
+      let revenue = 0;
+      try {
+        const sales = await Sale.find({ businessId });
+        revenue = sales.reduce((acc, curr) => acc + curr.total_amount, 0);
+      } catch (e) {
+        console.error("Report generation error", e);
+      }
+      
+      return res.json({ success: true, textResponse: `You have ${totalSales} sales with a total revenue of ${revenue} rupees.` });
+  }
+
+  return res.json({ success: true, textResponse: "I didn't understand that command." });
 };
 
-module.exports = { processCommand };
+module.exports = { processCommand: processAudioCommand };
